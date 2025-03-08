@@ -11,8 +11,10 @@ Harvard 30K
 https://yutianyt.com/projects/fairvision30k/
 
 ### 2. Run
-Run the end-to-end framework.
-python ./Run_fusion
+Train the end-to-end framework.
+`./Run_fusion`
+Test the checkpoint.
+`./Run_test`
 
 ### 3. Env
 see the requirement.txt 
