@@ -60,7 +60,7 @@ class PoE(nn.Module):
                                 generator=torch.manual_seed(seed)).cuda()  # must be the same seed as the training seed
 
 
-class PIB(nn.Module):
+class EPRL(nn.Module):
     def __init__(self,
                  x_dim,
                  z_dim=256,
@@ -70,7 +70,7 @@ class PIB(nn.Module):
                  num_classes=3,
                  seed=1,
                  batch_size=16):
-        super(PIB, self).__init__()
+        super(EPRL, self).__init__()
 
         self.beta = beta
         self.sample_num = sample_num
@@ -547,11 +547,40 @@ def off_diagonal(x):
     assert n == m
     return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
 
-class DeCUR(nn.Module):
-    def __init__(self, args,common_ratio =0.5):
+class AttentionModel(nn.Module):
+    def __init__(self, embed_size, num_heads, num_layers):
+        super(AttentionModel, self).__init__()
+        
+        # Multihead Attention layer
+        self.attn = nn.MultiheadAttention(embed_size, num_heads,batch_first=True)
+
+        
+        
+        # 其他层，可以是层归一化、前馈网络等
+        self.layer_norm = nn.LayerNorm(embed_size)
+
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_size, embed_size * 3),
+            nn.ReLU(),
+            nn.Linear(embed_size * 3, embed_size)
+        )
+        self.relu = nn.ReLU()
+
+    def forward(self, x,y,z):
+        # 假设 x 是 (seq_len, batch_size, embed_size) 的形状
+        attn_output, attn_weights = self.attn(x, y, z)
+        attn_output = x + attn_output
+        attn_output = self.layer_norm(attn_output)
+        # 后续处理
+        output =  attn_output + self.ffn(attn_output)
+        output = self.relu(output)
+        
+        return output
+    
+class DILR(nn.Module):
+    def __init__(self, args,common_ratio = 0.5):
         super().__init__()
         self.args = args
-        
         self.common_ratio = common_ratio
         # backbone
         
@@ -605,6 +634,20 @@ class DeCUR(nn.Module):
         layers.append(nn.Linear(sizes[-2], sizes[-1], bias=False))"""
         self.projector1 = nn.Linear(1024,2048)
         self.projector2 = nn.Linear(768,2048)
+        self.self_attn1 = AttentionModel(1024,8,1)
+        self.self_attn2 = AttentionModel(1024,8,1)
+        self.common_dim = 2048 * self.common_ratio
+
+        self.shared_features_projector = nn.Linear(1024,int(2048 * common_ratio) )
+        self.guided_features_projector1 = nn.Linear(1024,int(2048 * common_ratio) )
+        self.guided_features_projector2 = nn.Linear(1024,int(2048 * common_ratio) )
+
+        self.cross_attn1 = AttentionModel(1024,8,1)
+        self.cross_attn2 = AttentionModel(1024,8,1)
+
+
+        #self.self_attn1 = nn.selfAttentionModel(1024,8,1)
+        #self.self_attn2 = nn.selfAttentionModel(1024,8,1)
 
         # normalization layer for the representations z1 and z2
         self.bn1 = nn.BatchNorm1d(2048, affine=False)
@@ -668,42 +711,61 @@ class DeCUR(nn.Module):
         
         return x
 
-    def forward(self, y1_2,y2_1,shared_features):
-
-        """if self.args.rda:
-            f1_1 = self.forward_resnet_da(y1_1,self.backbone_1,self.da1_l3,self.da1_l4)
-            f1_2 = self.forward_resnet_da(y1_2,self.backbone_1,self.da1_l3,self.da1_l4)
-            f2_1 = self.forward_resnet_da(y2_1,self.backbone_2,self.da1_l3,self.da1_l4)
-            f2_2 = self.forward_resnet_da(y2_2,self.backbone_2,self.da1_l3,self.da1_l4)
-        else:
-            f1_1 = self.backbone_1(y1_1)
-            f1_2 = self.backbone_1(y1_2)
-            f2_1 = self.backbone_2(y2_1)
-            f2_2 = self.backbone_2(y2_2)  """
-
-        #z1_1 = self.projector1(f1_1)
-        y1_2 = self.projector1(y1_2)
-        y2_1 = self.projector2(y2_1) # (32,256, 2048)
-        #z2_2 = self.projector2(f2_2)         
-
-        y1_2 = torch.mean(y1_2, dim=1)
-        y2_1 = torch.mean(y2_1, dim=1)
-
-        common_dim = int(self.common_ratio * y1_2.size(1))
-
-        #loss1, on_diag1, off_diag1 = self.bt_loss_single(z1_1,z1_2)
-        #loss2, on_diag2, off_diag2 = self.bt_loss_single(z2_1,z2_2)   
-        # 
-             
-        loss12_c, on_diag12_c, off_diag12_c, loss12_u, on_diag12_u, off_diag12_u = self.bt_loss_cross(y1_2,y2_1,common_dim=common_dim)
-        loss12 = (loss12_c + loss12_u) / 2.0
-        y1_2 = self.bn1(y1_2)
-        y2_1 = self.bn2(y2_1)
+    def forward(self, y1_2, y2_1, shared_features,funds_guided,octs_guided):
+        # Project input features
+        y1 = self.projector1(y1_2)  # Shape: [batch, seq_len1, feature_dim]
+        y2 = self.projector2(y2_1)  # Shape: [batch, seq_len2, feature_dim]
         
-        combined_features = torch.cat((y1_2[:,common_dim:,],shared_features * y1_2[:,:common_dim],y2_1[:,common_dim:]),dim=1)
-        #print(f"loss12 is {loss12}")
-
-        return combined_features,loss12
+        # Calculate dimensions for common and unique parts
+        feature_dim = y1.size(2)
+        common_dim = int(self.common_ratio * feature_dim)
+        unique_dim = feature_dim - common_dim
+        
+        # Split features into common and unique parts
+        y1_unique_part = y1[:, :, :common_dim]
+        y1_common_part = y1[:, :, common_dim:]
+        y2_unique_part = y2[:, :, :common_dim]
+        y2_common_part = y2[:, :, common_dim:]
+        
+        funds_guided = self.guided_features_projector1(funds_guided)
+        octs_guided = self.guided_features_projector2(octs_guided)
+        # Process unique parts with self-attention
+        y1_uni = self.self_attn1(funds_guided, y1_unique_part, y1_unique_part)
+        y2_uni = self.self_attn2(octs_guided, y2_unique_part, y2_unique_part)
+        
+        # Aggregate sequence dimension
+        y1_uni = torch.mean(y1_uni, dim=1)  # Shape: [batch, common_dim]
+        y2_uni = torch.mean(y2_uni, dim=1)  # Shape: [batch, common_dim]
+        
+        # Process common parts with cross-attention using shared features
+        shared_features_projected = self.shared_features_projector(shared_features).unsqueeze(1)
+        y1_common = self.cross_attn1(shared_features_projected, y1_common_part, y1_common_part).squeeze(1)  # Shape: [batch, unique_dim]
+        y2_common = self.cross_attn2(shared_features_projected, y2_common_part, y2_common_part).squeeze(1)  # Shape: [batch, unique_dim]
+        
+        # Concatenate common and unique parts for each modality
+        y1 = torch.cat((y1_common, y1_uni), dim=1)  # Shape: [batch, feature_dim]
+        y2 = torch.cat((y2_common, y2_uni), dim=1)  # Shape: [batch, feature_dim]
+        
+        # Calculate loss based on current common dimension ratio
+        common_dim_out = int(self.common_ratio * y1.size(1))
+        loss12_c, on_diag12_c, off_diag12_c, loss12_u, on_diag12_u, off_diag12_u = self.bt_loss_cross(
+            y1, y2, common_dim=common_dim_out
+        )
+        loss12 = (loss12_c + loss12_u) / 2.0
+        
+        # Normalize features
+        y1 = self.bn1(y1)
+        y2 = self.bn2(y2)
+        
+        # Combine features for output
+        # Ensure dimensions are consistent by explicitly using common_dim_out
+        combined_features = torch.cat((
+            y1[:, common_dim_out:],         # Unique features from y1
+            y1_common + y2_common,          # Shared common features
+            y2[:, common_dim_out:],         # Unique features from y2
+        ), dim=1)
+        
+        return combined_features, loss12
     
 class IMDR(nn.Module):
     def __init__(self, classes, modalties, classifiers_dims, args):
@@ -752,10 +814,10 @@ class IMDR(nn.Module):
                                                        activation='relu')
         self.oct_transformer = nn.TransformerEncoder(oct_encoder_layer, num_layers=2)
 
-        self.PIB_fundus = PIB(self.fundus_embedding_dim, num_classes=self.num_classes,
+        self.EPRL_fundus = EPRL(self.fundus_embedding_dim, num_classes=self.num_classes,
                               topk=self.topk_fundus, sample_num=self.sample_num, seed=self.seed, batch_size=args.batch_size)
 
-        self.PIB_oct = PIB(self.oct_embedding_dim, num_classes=self.num_classes,
+        self.EPRL_oct = EPRL(self.oct_embedding_dim, num_classes=self.num_classes,
                            topk=self.topk_oct, sample_num=self.sample_num, seed=self.seed,batch_size=args.batch_size)
 
         self.PoE = PoE(modality_num=2, sample_num=800, seed=1)
@@ -769,7 +831,7 @@ class IMDR(nn.Module):
 
         self.CLUB = MIEstimator(self.fundus_embedding_dim)
 
-        self.decur = DeCUR(args,common_ratio=0.5)
+        self.DILR = DILR(args,common_ratio=0.5)
 
         self.args = args
 
@@ -816,86 +878,36 @@ class IMDR(nn.Module):
         loss = loss1 + IB_loss_proxy + (proxy_loss_fundus + proxy_loss_oct) * 0.3 + 0.001 * mimin_loss
         return loss
     
-    import torch
-    import matplotlib.pyplot as plt
-
-    import torch
-    import numpy as np
-
-    def compute_token_distance(self, feature_map, size=1000000):
-        """
-        计算Transformer特征图中token间的距离，这里使用余弦相似度，并调整为余弦距离。
-        feature_map: [batch_size, num_tokens, token_dim]
-        """
-        # 计算每个token的L2范数（每个token的向量）
-        norm = torch.norm(feature_map, dim=2, keepdim=True)  # 计算L2范数, shape: [16, 144, 1]
-        normalized_features = feature_map / norm  # 归一化每个token的特征
-
-        # 计算token之间的余弦相似度
-        cos_sim_matrix = torch.bmm(normalized_features, normalized_features.transpose(1, 2))  # [batch_size, num_tokens, num_tokens]
-
-        # 将余弦相似度转换为余弦距离
-        cosine_distance = 1 - cos_sim_matrix  # 余弦距离范围在[0, 2]之间
-        
-        # 生成一个均值接近0.6的正态分布，且在[0, 1]范围内，增加标准差调整分布
-        distances = np.random.normal(loc=0.6, scale=0.15, size=size)  # 均值接近0.6，标准差0.15
-
-        # 限制生成的数据在[0, 1]之间，避免产生负值或大于1的值
-        distances = np.clip(distances, 0, 1)
-
-        # 生成的正态分布调整后赋给distances，使得cosine距离在[0, 1]之间
-        # 这里通过控制均值为0.6来调整分布，模拟真实数据
-        adjusted_cosine_distance = cosine_distance * 0.4 + 0.6  # 缩放至[0.4, 1]
-        distances = np.random.normal(loc=mean, scale=std_dev, size=size)
-
-        # 限制生成的数据在[0, 1]之间，避免产生负值或大于1的值
-        distances = np.clip(distances, 0, 1)
-
-        
-
-        return adjusted_cosine_distance.cpu().detach().numpy()  # 返回numpy数组
-
-
-    def plot_token_distance_histogram(self,distance_matrix, title):
-        """
-        绘制token间距离的直方图。
-        """
-        plt.figure(figsize=(10, 6))
-        plt.hist(distance_matrix.flatten(), bins=50, alpha=0.7)
-        plt.title(title)
-        plt.xlabel("Inter-token Distance")
-        plt.ylabel("Frequency")
-        plt.grid(True)
-        plt.show()
-        plt.savefig("token_distance_histogram.png")
-
-
-
+    
 
     def forward(self, X, y, epoch):
         x, fundus_out = self.transformer_2DNet(X[0])
         x1, oct_out = self.transformer_3DNet(X[1]) # shape [32, 144, 1024]
-        print(f"x shape: {x.shape}")
-        distance_our = self.compute_token_distance(x)
-        self.plot_token_distance_histogram(distance_our, "Token Distance Histogram - Our Method (OCT or Fundus)")
-        import pdb; pdb.set_trace()
 
         
 
         #print(f"x shape: {x.shape}")
 
-        # mu_topk_fundus, sigma_topk_fundus, proxy_loss_fundus, z_topk_fundus, v_fundus = self.PIB_fundus(fundus_out,
+        # mu_topk_fundus, sigma_topk_fundus, proxy_loss_fundus, z_topk_fundus, v_fundus = self.EPRL_fundus(fundus_out,
         #                                                                                                 y=y)  # mu_top torch.Size([8, 2, 256])
-        # mu_topk_oct, sigma_topk_oct, proxy_loss_oct, z_topk_oct, v_oct = self.PIB_oct(oct_out, y=y)
+        # mu_topk_oct, sigma_topk_oct, proxy_loss_oct, z_topk_oct, v_oct = self.EPRL_oct(oct_out, y=y)
         if not self.training:
-            mu_topk_fundus, sigma_topk_fundus, proxy_loss_fundus, z_topk_fundus, entropy_loss = self.PIB_fundus(x, y=y)  # mu_top torch.Size([8, 2, 256])
-            mu_topk_oct, sigma_topk_oct, proxy_loss_oct, z_topk_oct, entropy_loss  = self.PIB_oct(x1, y=y)
+            mu_topk_fundus, sigma_topk_fundus, proxy_loss_fundus, z_topk_fundus, entropy_loss = self.EPRL_fundus(x, y=y)  # mu_top torch.Size([8, 2, 256])
+            mu_topk_oct, sigma_topk_oct, proxy_loss_oct, z_topk_oct, entropy_loss  = self.EPRL_oct(x1, y=y)
         else:
-            mu_topk_fundus, sigma_topk_fundus, proxy_loss_fundus, z_topk_fundus = self.PIB_fundus(x, y=y)  # mu_top torch.Size([8, 2, 256])
-            mu_topk_oct, sigma_topk_oct, proxy_loss_oct, z_topk_oct = self.PIB_oct(x1, y=y)
+            mu_topk_fundus, sigma_topk_fundus, proxy_loss_fundus, z_topk_fundus = self.EPRL_fundus(x, y=y)  # mu_top torch.Size([8, 2, 256])
+            mu_topk_oct, sigma_topk_oct, proxy_loss_oct, z_topk_oct = self.EPRL_oct(x1, y=y)
 
         mu_list = [mu_topk_fundus, mu_topk_oct]
         var_list = [sigma_topk_fundus, sigma_topk_oct]
+
+        # 随机抽样获得fundus guides
+        eps = self.gaussian_noise(samples=(16, self.sample_num), k=dim,
+                                  seed=self.seed)  # eps torch.Size([8, 50, 2])
+        fundus_guided = mu_topk_fundus + torch.rand_like(mu_topk_fundus) * sigma_topk_fundus
+
+        # 随机抽样获得oct guides
+        oct_guided = mu_topk_oct + torch.rand_like(mu_topk_oct) * sigma_topk_oct
 
         poe_features = self.PoE(mu_list, var_list)  # poe_features torch.Size([8, 1, 2, 128])
         poe_embed = torch.mean(poe_features, dim=1)
@@ -905,7 +917,7 @@ class IMDR(nn.Module):
 
 
 
-        combine_features, loss_decur = self.decur(x, x1, global_fusion)
+        combine_features, loss_DILR = self.DILR(x, x1, global_fusion,fundus_guided, oct_guided)
 
         #mimin_loss = self.CLUB.learning_loss(x_fundus.squeeze(2), x_oct.squeeze(2), global_fusion)
         # print('loss', mimin_loss)
@@ -931,9 +943,9 @@ class IMDR(nn.Module):
             mu_topk_oct, sigma_topk_oct)
 
         if not self.training:
-            loss = self.compute_loss_test(loss1, IB_loss_proxy, proxy_loss_fundus, proxy_loss_oct, loss_decur, entropy_loss)
+            loss = self.compute_loss_test(loss1, IB_loss_proxy, proxy_loss_fundus, proxy_loss_oct, loss_DILR, entropy_loss)
         else:
-            loss = self.compute_loss_train(loss1, IB_loss_proxy, proxy_loss_fundus, proxy_loss_oct, loss_decur)
+            loss = self.compute_loss_train(loss1, IB_loss_proxy, proxy_loss_fundus, proxy_loss_oct, loss_DILR)
 
         loss = torch.mean(loss)
         
