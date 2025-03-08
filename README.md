@@ -12,9 +12,10 @@ https://yutianyt.com/projects/fairvision30k/
 
 ### 2. Run
 Train the end-to-end framework.
-`./Run_fusion`
-Test the checkpoint.
+`./Run_fusion`.
+
+ Test the checkpoint.
 `./Run_test`
 
-### 3. Env
+### 3. Environment
 see the requirement.txt 
