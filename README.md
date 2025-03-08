@@ -1,6 +1,6 @@
 # Robust-Multimodal-Learning-for-Ophthalmic-Disease-Grading-via-Disentangled-Representation
 This is the offical implementation for Robust Multimodal Learning for Ophthalmic Disease Grading via Disentangled Representation
-###1.dataset
+### 1.dataset
 Harvard 30K 
 https://yutianyt.com/projects/fairvision30k/
 
