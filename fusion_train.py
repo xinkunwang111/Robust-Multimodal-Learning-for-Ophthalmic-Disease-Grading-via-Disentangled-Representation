@@ -511,7 +511,6 @@ if __name__ == "__main__":
 
     parser.add_argument('--modal_number', type=int, default=2, metavar='N',
                         help='modalties number')
-    parser.add_argument("--checkpoint",type = str)
 
     parser.add_argument('--batch_size', type=int, default=32, metavar='N',
                         help='input batch size for training [default: 100]')
@@ -754,10 +753,7 @@ if __name__ == "__main__":
     acc_list = []
     if args.mode =='train&test':
         epoch = 0
-        checkpoint = args.checkpoint
-        test_loss, best_test_acc = test(epoch, test_loader, model, checkpoint)
-        import pdb;
-        pdb.set_trace()
+
 
         print('===========Train begining!===========')
         for epoch in range(args.start_epoch, args.end_epochs + 1):
