@@ -138,7 +138,7 @@ class EPRL(nn.Module):
 
         # Sample
         eps_proxy = self.gaussian_noise(samples=([self.num_classes, self.sample_num]), K=self.z_dim,
-                                        seed=self.seed)  # torch.Size([2, 50, 256])  采样50个样本
+                                        seed=self.seed)
 
         z_proxy_sample = mu_proxy.unsqueeze(dim=1) + sigma_proxy.unsqueeze(
             dim=1) * eps_proxy
@@ -162,7 +162,7 @@ class EPRL(nn.Module):
             att_mean = torch.mean(att, dim=2)
             z_mean = torch.mean(z_norm, dim=2)
 
-            # 生成伪标签
+
             pseudo_labels_att = torch.softmax(att_mean, dim=1)
             pseudo_labels_feat = torch.softmax(z_mean, dim=1)
             if pseudo_labels_feat.shape[1] == 144:
@@ -173,11 +173,11 @@ class EPRL(nn.Module):
             pseudo_labels_combined = self.alpha * pseudo_labels_att + (1- self.alpha) * pseudo_labels_feat
 
 
-            # 计算置信度和标签
+
             confidence, labels = torch.max(pseudo_labels_combined, dim=1)
             mask = confidence > threshold
 
-            # 如果没有标签超过阈值，选择最大置信度的标签
+
             if mask.sum().item() == 0:
                 mask[confidence.argmax()] = True
 
@@ -186,7 +186,7 @@ class EPRL(nn.Module):
             proxy_indices = [self.proxies_dict[str(int(label_item))] for label_item in filtered_labels]
             proxy_indices = torch.tensor(proxy_indices).long().cuda()
 
-            # 计算伪标签的注意力
+
             mask = torch.zeros(att.size(0), att.size(1), dtype=torch.bool).cuda()
             mask[torch.arange(att.size(0)), proxy_indices] = True
 
@@ -196,7 +196,7 @@ class EPRL(nn.Module):
             # print('att_positive', att_positive.shape)
             # print('att_negative', att_negative.shape)
 
-            self_topk = 100  # 选择前两个最高的注意力分数
+            self_topk = 100
             att_topk_positive, _ = torch.topk(att_positive, self_topk, dim=1)
             att_topk_negative, _ = torch.topk(att_negative, self_topk, dim=1)
 
@@ -222,7 +222,7 @@ class EPRL(nn.Module):
 
             att = torch.matmul(z_norm.unsqueeze(1), torch.transpose(z_proxy_norm_expanded, 2, 3))  # [16, 3, 144, 50]
             att = att.permute(0, 2, 1, 3)  # [16, 144, 3, 50]
-            att = att.mean(dim=1)  # [16, 3, 50] 这里对第2个维度进行平均，可以根据实际需求调整
+            att = att.mean(dim=1)
 
             proxy_indices = [self.proxies_dict[str(int(y_item))] for y_item in y]
             proxy_indices = torch.tensor(proxy_indices).long().cuda()
@@ -233,7 +233,7 @@ class EPRL(nn.Module):
             att_positive = torch.masked_select(att, mask.unsqueeze(-1)).view(att.size(0), -1)
             att_negative = torch.masked_select(att, ~mask.unsqueeze(-1)).view(att.size(0), -1)
 
-            self_topk = 100  # 选择前两个最高的注意力分数
+            self_topk = 100
             att_topk_positive, _ = torch.topk(att_positive, self_topk, dim=1)
             att_topk_negative, _ = torch.topk(att_negative, self_topk, dim=1)
 
@@ -446,18 +446,18 @@ from scipy.stats import t as StudentT
 def visualize_student_t_distributions(mu_pos, sigma_pos, v_pos, mu_neg, sigma_neg, v_neg, title, filename):
     num_distributions = len(mu_pos)
     num_cols = 4
-    num_rows = (num_distributions + num_cols - 1) // num_cols  # 计算行数
+    num_rows = (num_distributions + num_cols - 1) // num_cols
     x = np.linspace(-0.1, 0.1, 1000)
 
     fig, axes = plt.subplots(num_rows, num_cols, figsize=(20, 12))
-    axes = axes.flatten()  # 展平以便于迭代
+    axes = axes.flatten()
 
     for i in range(num_distributions):
         # print('v_pos[i]', v_pos[i])
         # print('mu_pos[i]', mu_pos[i])
         # print('sigma_pos[i]', sigma_pos[i])
-        y_pos = StudentT.pdf(x, df=v_pos[i], loc=mu_pos[i], scale=sigma_pos[i])  # 计算正样本的PDF
-        y_neg = StudentT.pdf(x, df=v_neg[i], loc=mu_neg[i], scale=sigma_neg[i])  # 计算负样本的PDF
+        y_pos = StudentT.pdf(x, df=v_pos[i], loc=mu_pos[i], scale=sigma_pos[i])
+        y_neg = StudentT.pdf(x, df=v_neg[i], loc=mu_neg[i], scale=sigma_neg[i])
         axes[i].plot(x, y_pos, label=f'Positive (v={v_pos[i]:.8f}, loc={mu_pos[i]:.8f}, scale={sigma_pos[i]:.8f})',
                      color='blue')
         axes[i].plot(x, y_neg, label=f'Negative (v={v_neg[i]:.8f}, loc={mu_neg[i]:.8f}, scale={sigma_neg[i]:.8f})',
@@ -468,7 +468,7 @@ def visualize_student_t_distributions(mu_pos, sigma_pos, v_pos, mu_neg, sigma_ne
         axes[i].legend()
         axes[i].grid(True)
 
-    # 移除多余的子图
+
     for i in range(num_distributions, num_rows * num_cols):
         fig.delaxes(axes[i])
 
@@ -540,7 +540,7 @@ class CLUBMean(nn.Module):  # Set variance of q(y|x) to 1, logvar = 0. Update 11
 
     def learning_loss(self, x_samples, y_samples):
         return - self.loglikeli(x_samples, y_samples)
-    
+
 def off_diagonal(x):
     # return a flattened view of the off-diagonal elements of a square matrix
     n, m = x.shape
@@ -550,13 +550,13 @@ def off_diagonal(x):
 class AttentionModel(nn.Module):
     def __init__(self, embed_size, num_heads, num_layers):
         super(AttentionModel, self).__init__()
-        
+
         # Multihead Attention layer
         self.attn = nn.MultiheadAttention(embed_size, num_heads,batch_first=True)
 
-        
-        
-        # 其他层，可以是层归一化、前馈网络等
+
+
+
         self.layer_norm = nn.LayerNorm(embed_size)
 
         self.ffn = nn.Sequential(
@@ -567,51 +567,51 @@ class AttentionModel(nn.Module):
         self.relu = nn.ReLU()
 
     def forward(self, x,y,z):
-        # 假设 x 是 (seq_len, batch_size, embed_size) 的形状
+
         attn_output, attn_weights = self.attn(x, y, z)
         attn_output = x + attn_output
         attn_output = self.layer_norm(attn_output)
-        # 后续处理
+
         output =  attn_output + self.ffn(attn_output)
         output = self.relu(output)
-        
+
         return output
-    
+
 class DILR(nn.Module):
     def __init__(self, args,common_ratio = 0.5):
         super().__init__()
         self.args = args
         self.common_ratio = common_ratio
         # backbone
-        
+
         # deformable attention
         """if args.rda:
             from .dat.dat_blocks import DAttentionBaseline
 
             self.da1_l3 = DAttentionBaseline(
                 q_size=(14,14), kv_size=(14,14), n_heads=8, n_head_channels=128, n_groups=4,
-                attn_drop=0, proj_drop=0, stride=2, 
+                attn_drop=0, proj_drop=0, stride=2,
                 offset_range_factor=-1, use_pe=True, dwc_pe=False,
                 no_off=False, fixed_pe=False, ksize=5, log_cpb=False
             )
 
             self.da1_l4 = DAttentionBaseline(
                 q_size=(7,7), kv_size=(7,7), n_heads=16, n_head_channels=128, n_groups=8,
-                attn_drop=0, proj_drop=0, stride=1, 
+                attn_drop=0, proj_drop=0, stride=1,
                 offset_range_factor=-1, use_pe=True, dwc_pe=False,
                 no_off=False, fixed_pe=False, ksize=3, log_cpb=False
             )
 
             self.da2_l3 = DAttentionBaseline(
                 q_size=(14,14), kv_size=(14,14), n_heads=8, n_head_channels=128, n_groups=4,
-                attn_drop=0, proj_drop=0, stride=2, 
+                attn_drop=0, proj_drop=0, stride=2,
                 offset_range_factor=-1, use_pe=True, dwc_pe=False,
                 no_off=False, fixed_pe=False, ksize=5, log_cpb=False
             )
 
             self.da2_l4 = DAttentionBaseline(
                 q_size=(7,7), kv_size=(7,7), n_heads=16, n_head_channels=128, n_groups=8,
-                attn_drop=0, proj_drop=0, stride=1, 
+                attn_drop=0, proj_drop=0, stride=1,
                 offset_range_factor=-1, use_pe=True, dwc_pe=False,
                 no_off=False, fixed_pe=False, ksize=3, log_cpb=False
             )"""
@@ -659,7 +659,7 @@ class DILR(nn.Module):
 
         # sum the cross-correlation matrix between all gpus
         c.div_(self.args.batch_size*4)
-        
+
 
         dim_c = int(common_dim)
         c_c = c[:dim_c,:dim_c]
@@ -667,14 +667,14 @@ class DILR(nn.Module):
 
         on_diag_c = torch.diagonal(c_c).add_(-1).pow_(2).sum()
         off_diag_c = off_diagonal(c_c).pow_(2).sum()
-        
+
         on_diag_u = torch.diagonal(c_u).pow_(2).sum()
         off_diag_u = off_diagonal(c_u).pow_(2).sum()
-        
+
         loss_c = on_diag_c + 0.0051 * off_diag_c
         loss_u = on_diag_u + 0.0051 * off_diag_u
-        
-        return loss_c,on_diag_c,off_diag_c,loss_u,on_diag_u,off_diag_u   
+
+        return loss_c,on_diag_c,off_diag_c,loss_u,on_diag_u,off_diag_u
 
 
     def bt_loss_single(self, z1, z2):
@@ -708,55 +708,55 @@ class DILR(nn.Module):
         x = backbone.avgpool(x)
         x = torch.flatten(x, 1)
         x = backbone.fc(x)
-        
+
         return x
 
     def forward(self, y1_2, y2_1, shared_features,funds_guided,octs_guided):
         # Project input features
         y1 = self.projector1(y1_2)  # Shape: [batch, seq_len1, feature_dim]
         y2 = self.projector2(y2_1)  # Shape: [batch, seq_len2, feature_dim]
-        
+
         # Calculate dimensions for common and unique parts
         feature_dim = y1.size(2)
         common_dim = int(self.common_ratio * feature_dim)
         unique_dim = feature_dim - common_dim
-        
+
         # Split features into common and unique parts
         y1_unique_part = y1[:, :, :common_dim]
         y1_common_part = y1[:, :, common_dim:]
         y2_unique_part = y2[:, :, :common_dim]
         y2_common_part = y2[:, :, common_dim:]
-        
+
         funds_guided = self.guided_features_projector1(funds_guided)
         octs_guided = self.guided_features_projector2(octs_guided)
         # Process unique parts with self-attention
         y1_uni = self.self_attn1(funds_guided, y1_unique_part, y1_unique_part)
         y2_uni = self.self_attn2(octs_guided, y2_unique_part, y2_unique_part)
-        
+
         # Aggregate sequence dimension
         y1_uni = torch.mean(y1_uni, dim=1)  # Shape: [batch, common_dim]
         y2_uni = torch.mean(y2_uni, dim=1)  # Shape: [batch, common_dim]
-        
+
         # Process common parts with cross-attention using shared features
         shared_features_projected = self.shared_features_projector(shared_features).unsqueeze(1)
         y1_common = self.cross_attn1(shared_features_projected, y1_common_part, y1_common_part).squeeze(1)  # Shape: [batch, unique_dim]
         y2_common = self.cross_attn2(shared_features_projected, y2_common_part, y2_common_part).squeeze(1)  # Shape: [batch, unique_dim]
-        
+
         # Concatenate common and unique parts for each modality
         y1 = torch.cat((y1_common, y1_uni), dim=1)  # Shape: [batch, feature_dim]
         y2 = torch.cat((y2_common, y2_uni), dim=1)  # Shape: [batch, feature_dim]
-        
+
         # Calculate loss based on current common dimension ratio
         common_dim_out = int(self.common_ratio * y1.size(1))
         loss12_c, on_diag12_c, off_diag12_c, loss12_u, on_diag12_u, off_diag12_u = self.bt_loss_cross(
             y1, y2, common_dim=common_dim_out
         )
         loss12 = (loss12_c + loss12_u) / 2.0
-        
+
         # Normalize features
         y1 = self.bn1(y1)
         y2 = self.bn2(y2)
-        
+
         # Combine features for output
         # Ensure dimensions are consistent by explicitly using common_dim_out
         combined_features = torch.cat((
@@ -764,10 +764,10 @@ class DILR(nn.Module):
             y1_common + y2_common,          # Shared common features
             y2[:, common_dim_out:],         # Unique features from y2
         ), dim=1)
-        
+
         return combined_features, loss12
-    
-class IMDR(nn.Module):
+
+class MedFusion(nn.Module):
     def __init__(self, classes, modalties, classifiers_dims, args):
         """
         :param classes: Number of classification categories
@@ -775,7 +775,7 @@ class IMDR(nn.Module):
         :param classifier_dims: Dimension of the classifier
         :param annealing_epoch: KL divergence annealing epoch during training
         """
-        super(IMDR, self).__init__()
+        super(MedFusion, self).__init__()
         self.modalties = modalties
         self.classes = classes
         self.mode = args.mode
@@ -851,15 +851,15 @@ class IMDR(nn.Module):
 
     def visualize_and_save_distributions(self, mu_mean_positive, sigma_mean_positive, v_mean_positive,
                                          mu_mean_negative, sigma_mean_negative, v_mean_negative, epoch):
-        # 创建输出文件夹（如果不存在）
+
         output_dir = 'students_t_distributions/'
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        # 生成文件名，包含 epoch 信息
+
         filename = os.path.join(output_dir, f'students_t_distributions_epoch_{epoch + 1}.pdf')
 
-        # 可视化并保存结果
+
         visualize_student_t_distributions(
             mu_mean_positive, sigma_mean_positive, v_mean_positive,
             mu_mean_negative, sigma_mean_negative, v_mean_negative,
@@ -877,14 +877,14 @@ class IMDR(nn.Module):
 
         loss = loss1 + IB_loss_proxy + (proxy_loss_fundus + proxy_loss_oct) * 0.3 + 0.001 * mimin_loss
         return loss
-    
-    
+
+
 
     def forward(self, X, y, epoch):
         x, fundus_out = self.transformer_2DNet(X[0])
         x1, oct_out = self.transformer_3DNet(X[1]) # shape [32, 144, 1024]
 
-        
+
 
         #print(f"x shape: {x.shape}")
 
@@ -901,12 +901,12 @@ class IMDR(nn.Module):
         mu_list = [mu_topk_fundus, mu_topk_oct]
         var_list = [sigma_topk_fundus, sigma_topk_oct]
 
-        # 随机抽样获得fundus guides
+
         eps = self.gaussian_noise(samples=(16, self.sample_num), k=dim,
                                   seed=self.seed)  # eps torch.Size([8, 50, 2])
         fundus_guided = mu_topk_fundus + torch.rand_like(mu_topk_fundus) * sigma_topk_fundus
 
-        # 随机抽样获得oct guides
+
         oct_guided = mu_topk_oct + torch.rand_like(mu_topk_oct) * sigma_topk_oct
 
         poe_features = self.PoE(mu_list, var_list)  # poe_features torch.Size([8, 1, 2, 128])
@@ -930,7 +930,7 @@ class IMDR(nn.Module):
         pred = pred[:,:2]
         smoothing=0.1
         with torch.no_grad():
-            # 创建平滑后的标签
+
             true_dist = torch.zeros_like(pred).to(pred.device)
             true_dist.fill_(smoothing / (self.num_classes - 1))
             true_dist.scatter_(1, y.unsqueeze(1), 1.0 - smoothing)
@@ -948,7 +948,7 @@ class IMDR(nn.Module):
             loss = self.compute_loss_train(loss1, IB_loss_proxy, proxy_loss_fundus, proxy_loss_oct, loss_DILR)
 
         loss = torch.mean(loss)
-        
+
         return pred, loss,combine_features
 
 

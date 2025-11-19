@@ -16,7 +16,7 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from baseline_models import Res2Net2D,ResNet3D,Multi_ResNet,Multi_EF_ResNet,Multi_CBAM_ResNet,Multi_dropout_ResNet
-#from fusion_net import IMDR
+#from fusion_net import MedFusion
 from sklearn.model_selection import KFold
 from metrics import cal_ece
 import warnings
@@ -83,21 +83,21 @@ import os
 import csv
 
 def save_results(filename, epoch, loss_meter, acc, precision, recall, f1, auc, specificity=None):
-    # 检查文件是否存在
+
     if not os.path.exists(filename + ".csv"):
-        # 如果文件不存在，创建文件并写入表头
+
         with open(filename + ".csv", 'w', newline='') as f:
             writer = csv.writer(f)
-            # 写入表头
+
             writer.writerow([
                 'Epoch', 'Loss', 'Accuracy', 'Precision', 'Recall', 'F1 Score', 'AUC', 'Specificity'
             ])
 
-    # 文件存在时，直接追加内容
+
     with open(filename + ".csv", 'a', newline='') as f:
         writer = csv.writer(f)
-        
-        # 写入数据行
+
+
         row = [
             epoch,
             f"{loss_meter:.6f}",
@@ -107,11 +107,11 @@ def save_results(filename, epoch, loss_meter, acc, precision, recall, f1, auc, s
             f"{f1:.4f}",
             f"{auc:.4f}"
         ]
-        
-        # 如果传入了 specificity，添加到行数据中
+
+
         if specificity is not None:
             row.append(f"{specificity:.4f}")
-        
+
         writer.writerow(row)
 
 
@@ -190,26 +190,26 @@ def train(epoch,train_loader,model, best_acc=0.0):
 
         pred, loss, combined_features1 = model(data1, target, epoch)
         #print(f"the shape of pred is {pred.shape}") (32, number_of_class + 2 )
-        
+
         _, _, combined_features2 = model(data2, target, epoch)
         #print(f"Combined features shape: {combined_features1.shape}") # (32, dim)
         #print(f"poe_embed1 shape: {poe_embed1.shape}") # (32, 2,256)
         #print(f"Combined features shape: {combined_features1.shape}") # (32, dim)
         loss_MDD = MK_MMD(combined_features1, combined_features2)
         #loss_MDD = MK_MMD(poe_embed1, poe_embed2)
-        
-        # 获取经过 softmax 转换后的概率分布
+
+
 
         # soft_labels1 = F.softmax(poe_embed_cls1, dim=1)
         # soft_labels2 = F.softmax(poe_embed_cls2, dim=1)
 
-        # # 计算 Logits Distillation Loss (Llogits)
+
         # loss_logit_distillation = compute_js_divergence(soft_labels1, soft_labels2)
 
-        
+
         #loss = loss.mean()
         #print(f"Loss: {loss.item()} \tLoss MDD: {loss_MDD} \t")
-        loss = loss +  loss_MDD 
+        loss = loss +  loss_MDD
         predicted = pred.argmax(dim=-1)
         correct_num += (predicted == target).sum().item()
 
@@ -325,10 +325,10 @@ def val(current_epoch, val_loader, model, best_acc):
     if aver_acc > best_acc:
         best_acc = aver_acc
         print('===========> Save best model!')
-    
+
         file_name = os.path.join(save_dir, f"{args.model_name}_{args.dataset}_{args.folder}_best_epoch_{epoch}__{aver_acc}.pth")
         if not os.path.exists(save_dir):
-            os.makedirs(save_dir) 
+            os.makedirs(save_dir)
         torch.save({'epoch': epoch, 'state_dict': model.state_dict()}, file_name)
 
     return loss_meter.avg, best_acc
@@ -347,7 +347,7 @@ def test(current_epoch, test_loader, model,checkpoint):
     for batch_idx, (data, target) in enumerate(tqdm(test_loader)):
         data = data[0]
         for v_num in range(len(data)):
-            
+
             data[v_num] = Variable(data[v_num].float().cuda())
         data_num += target.size(0)
         with torch.no_grad():
@@ -381,7 +381,7 @@ def test(current_epoch, test_loader, model,checkpoint):
 
     print('====> acc: {:.4f}'.format(aver_acc))
     print(f'Precision: {precision:.4f} \tRecall: {recall:.4f} \tF1 Score: {f1:.4f} \tAUC: {auc:.4f}')
-    
+
 
     return loss_meter.avg, best_acc
 
@@ -508,7 +508,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    
+
     parser.add_argument('--modal_number', type=int, default=2, metavar='N',
                         help='modalties number')
 
@@ -524,7 +524,7 @@ if __name__ == "__main__":
                         help='gradually increase the value of lambda from 0 to 1')
     parser.add_argument('--lr', type=float, default=0.0001, metavar='LR',
                         help='learning rate')
-    parser.add_argument("--model_name", default="IMDR", type=str, help="Base_transformer/ResNet3D/Res2Net2D/Multi_ResNet/Multi_dropout_ResNet/Multi_DE_ResNet/Multi_CBAM_ResNet/Multi_EF_ResNet")
+    parser.add_argument("--model_name", default="MedFusion", type=str, help="Base_transformer/ResNet3D/Res2Net2D/Multi_ResNet/Multi_dropout_ResNet/Multi_DE_ResNet/Multi_CBAM_ResNet/Multi_EF_ResNet")
     parser.add_argument("--dataset", default="MMOCTF", type=str, help="MMOCTF/MGamma/Gamma/OLIVES")
     parser.add_argument("--folder", default="folder0", type=str, help="folder0/folder1/folder2/folder3/folder4")
     parser.add_argument("--mode", default="test", type=str, help="train/test/train&test")
@@ -536,7 +536,7 @@ if __name__ == "__main__":
     parser.add_argument("--Condition_SP_Variance", default=0.005, type=int, help="Variance: 0.01/0.1")
     parser.add_argument("--Condition_G_Variance", default=0.05, type=float, help="Variance: 15/1/0.1")
 
-    # control log 
+    # control log
     parser.add_argument('--name', default='checkpoint_0.3',
                         type=str)  # name  Save
 
@@ -549,7 +549,7 @@ if __name__ == "__main__":
 
     if args.dataset =="dr2":
         from DR_2.data_harvard import GAMMA_dataset as GAMMA_dataset_dr2
-        
+
         args.modalties_name = ["FUN", "OCT"]
         args.dims = [[(128, 256, 128)], [(512, 512)]]
         args.num_classes = 2
@@ -622,7 +622,7 @@ if __name__ == "__main__":
         data_list = df['data'].astype(str).values
         data_list = np.array([str(x).zfill(5) for x in data_list])
 
-        # 按80%分割数据为训练集和验证集
+
         train_size = int(len(data_list) * 0.8)
         train_list = data_list[:train_size]
         val_list = data_list[train_size:]
@@ -653,7 +653,7 @@ if __name__ == "__main__":
         print('There is no this dataset name')
         raise NameError
 
-    # Baseline and  IMDR
+    # Baseline and  MedFusion
     if args.model_name =="ResNet3D":
         args.modalties_name = ["OCT"]
         args.modal_number = 1
@@ -724,15 +724,15 @@ if __name__ == "__main__":
         models.append(model)
 
     # Our  Model
-    elif args.model_name == "IMDR":
+    elif args.model_name == "MedFusion":
         args.modalties_name = ["FUN", "OCT"]
         args.modalties = len(args.dims)
         if args.dataset == 'dr2':
-            from DR_2.fusion_net import IMDR
-            model = IMDR(args.num_classes, args.modal_number, args.dims, args)
+            from DR_2.fusion_net import MedFusion
+            model = MedFusion(args.num_classes, args.modal_number, args.dims, args)
         elif args.dataset == 'glu2':
-            from glu2.fusion_net import IMDR
-            model = IMDR(args.num_classes, args.modal_number, args.dims, args)
+            from glu2.fusion_net import MedFusion
+            model = MedFusion(args.num_classes, args.modal_number, args.dims, args)
 
     else:
         print('There is no this model name')
